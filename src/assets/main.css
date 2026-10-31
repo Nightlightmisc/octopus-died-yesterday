@@ -1,0 +1,41 @@
+
+@import './base.css';
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  background-color: #1a1a1a;
+  color: #fff;
+}
+
+#app {
+  width: 100%;
+  min-height: 100vh;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  font-weight: normal;
+  font-family: "Poppins", sans-serif;
+}
+
+a {
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  a:hover {
+    background-color: transparent;
+  }
+}
