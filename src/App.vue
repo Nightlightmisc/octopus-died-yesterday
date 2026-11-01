@@ -6,6 +6,7 @@ const searchQuery = ref('')
 const selectedCategory = ref('')
 const categories = ref([])
 const recipes = ref([])
+const allRecipes = ref([])
 const isLoading = ref(false)
 const errorMessage = ref('')
 const selectedRecipe = ref(null)
@@ -23,58 +24,43 @@ const closeMenu = () => {
   isOpen.value = false
 }
 
-// Fetch available categories for the dropdown
-const fetchCategories = async () => {
-  try {
-    const response = await fetch('https://www.themealdb.com/api/json/v1/1/list.php?c=list')
-    const data = await response.json()
-    categories.value = data.meals || []
-  } catch (error) {
-    console.error('Error fetching categories:', error)
-  }
-}
-
 const fetchRecipes = async (query = '', category = '') => {
   isLoading.value = true
   errorMessage.value = ''
 
   try {
-    let endpoint = ''
+    if (allRecipes.value.length === 0) {
+      const response = await fetch('https://dummyjson.com/recipes?limit=50')
 
-    if (category) {
-      // Filter by category endpoint
-      endpoint = `https://www.themealdb.com/api/json/v1/1/filter.php?c=${encodeURIComponent(category)}`
-    } else {
-      // Search by name endpoint
-      const searchTerm = query.trim() || 'chicken'
-      endpoint = `https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(searchTerm)}`
+      if (!response.ok) {
+        throw new Error('Failed to fetch recipes. Please try again.')
+      }
+
+      const data = await response.json()
+      allRecipes.value = data.recipes || []
+
+      const uniqueCats = [...new Set(allRecipes.value.map(r => r.mealType?.[0] || r.cuisine))]
+      categories.value = uniqueCats.filter(Boolean)
     }
 
-    const response = await fetch(endpoint)
+    let filtered = allRecipes.value
 
-    if (!response.ok) {
-      throw new Error('Failed to fetch recipes. Please try again.')
-    }
-
-    const data = await response.json()
-
-    // Note: The filter by category endpoint returns summary objects (idMeal, strMeal, strMealThumb) 
-    // without full ingredients/instructions. We handle both cases gracefully!
-    const mealList = data.meals || []
-    
     if (category) {
-      // If filtering by category, fetch full details for each meal so modal works properly
-      recipes.value = await Promise.all(
-        mealList.slice(0, 12).map(async (meal) => {
-          const detailRes = await fetch(`https://www.themealdb.com/api/json/v1/1/lookup.php?i=${meal.idMeal}`)
-          const detailData = await detailRes.json()
-          const fullMeal = detailData.meals ? detailData.meals[0] : meal
-          return formatMealData(fullMeal)
-        })
+      filtered = filtered.filter(r => 
+        (r.mealType && r.mealType.includes(category)) || r.cuisine === category
       )
-    } else {
-      recipes.value = mealList.map(formatMealData)
     }
+
+    if (query.trim()) {
+      const term = query.trim().toLowerCase()
+      filtered = filtered.filter(r => 
+        r.name.toLowerCase().includes(term) ||
+        r.cuisine.toLowerCase().includes(term) ||
+        r.ingredients.some(ing => ing.toLowerCase().includes(term))
+      )
+    }
+
+    recipes.value = filtered.map(formatRecipeData)
 
   } catch (error) {
     errorMessage.value = error.message
@@ -84,46 +70,30 @@ const fetchRecipes = async (query = '', category = '') => {
   }
 }
 
-// Helper to format meal object structure
-const formatMealData = (meal) => {
-  const ingredients = []
-
-  for (let i = 1; i <= 20; i++) {
-    const ingredient = meal[`strIngredient${i}`]
-    const measure = meal[`strMeasure${i}`]
-
-    if (ingredient?.trim()) {
-      ingredients.push(
-        `${measure?.trim() ? measure.trim() + ' ' : ''}${ingredient.trim()}`
-      )
-    }
-  }
-
-  const instructions = meal.strInstructions
-    ? meal.strInstructions
-        .split(/\r?\n/)
-        .filter(step => step.trim())
-    : []
-
+const formatRecipeData = (recipe) => {
   return {
-    id: meal.idMeal,
-    name: meal.strMeal,
-    cuisine: meal.strArea || 'General',
-    category: meal.strCategory || 'General',
-    image: meal.strMealThumb,
-    caloriesPerServing: 'N/A',
-    ingredients,
-    instructions
+    id: recipe.id,
+    name: recipe.name,
+    cuisine: recipe.cuisine || 'General',
+    category: recipe.mealType ? recipe.mealType.join(', ') : 'General',
+    image: recipe.image,
+    caloriesPerServing: recipe.caloriesPerServing ? `${recipe.caloriesPerServing} kcal` : 'N/A',
+    prepTimeMinutes: recipe.prepTimeMinutes || 'N/A',
+    cookTimeMinutes: recipe.cookTimeMinutes || 'N/A',
+    servings: recipe.servings || 'N/A',
+    rating: recipe.rating || 'N/A',
+    ingredients: recipe.ingredients || [],
+    instructions: recipe.instructions || []
   }
 }
 
 const handleSearch = () => {
-  selectedCategory.value = '' // Reset category filter when searching by text
+  selectedCategory.value = ''
   fetchRecipes(searchQuery.value, '')
 }
 
 const handleCategoryChange = () => {
-  searchQuery.value = '' // Reset search input when filtering by category
+  searchQuery.value = ''
   fetchRecipes('', selectedCategory.value)
 }
 
@@ -136,7 +106,6 @@ const closeRecipeModal = () => {
 }
 
 onMounted(() => {
-  fetchCategories()
   fetchRecipes()
 })
 </script>
@@ -146,36 +115,18 @@ onMounted(() => {
     <nav class="navbar">
       <div class="nav-container">
         <div class="nav-brand">
-          <router-link to="/"class="logo" @click="closeMenu">FoodForFabolous</router-link>
+          <router-link to="/" class="logo" @click="closeMenu">FoodForFabolous</router-link>
           <router-link to="/" class="logo2" @click="closeMenu"> // Make your days better</router-link>
         </div>
 
         <button class="menu-toggle" :aria-expanded="isOpen" aria-label="Toggle navigation" @click="toggleMenu">
-          <span
-            class="burger-bar"
-            :class="{ 'open-top': isOpen }"
-          ></span>
-
-          <span
-            class="burger-bar"
-            :class="{ 'open-mid': isOpen }"
-          ></span>
-
-          <span
-            class="burger-bar"
-            :class="{ 'open-bot': isOpen }"
-          ></span>
+          <span class="burger-bar" :class="{ 'open-top': isOpen }"></span>
+          <span class="burger-bar" :class="{ 'open-mid': isOpen }"></span>
+          <span class="burger-bar" :class="{ 'open-bot': isOpen }"></span>
         </button>
 
-        <ul
-          class="nav-links"
-          :class="{ 'nav-active': isOpen }"
-        >
-          <li
-            v-for="link in navLinks"
-            :key="link.name"
-            class="nav-item"
-          >
+        <ul class="nav-links" :class="{ 'nav-active': isOpen }">
+          <li v-for="link in navLinks" :key="link.name" class="nav-item">
             <router-link
               :to="link.path"
               class="nav-link"
@@ -190,10 +141,7 @@ onMounted(() => {
     </nav>
 
     <div class="search-menu-bar">
-      <form
-        class="search-form"
-        @submit.prevent="handleSearch"
-      >
+      <form class="search-form" @submit.prevent="handleSearch">
         <input
           v-model="searchQuery"
           type="text"
@@ -201,7 +149,6 @@ onMounted(() => {
           class="search-input"
         />
 
-        <!-- Categories Dropdown -->
         <select
           v-model="selectedCategory"
           class="category-select"
@@ -210,17 +157,14 @@ onMounted(() => {
           <option value="">All Categories</option>
           <option
             v-for="cat in categories"
-            :key="cat.strCategory"
-            :value="cat.strCategory"
+            :key="cat"
+            :value="cat"
           >
-            {{ cat.strCategory }}
+            {{ cat }}
           </option>
         </select>
 
-        <button
-          type="submit"
-          class="search-button"
-        >
+        <button type="submit" class="search-button">
           Search
         </button>
       </form>
@@ -228,31 +172,19 @@ onMounted(() => {
   </div>
 
   <main class="recipe-content">
-    <div
-      v-if="isLoading"
-      class="status-msg"
-    >
+    <div v-if="isLoading" class="status-msg">
       Loading recipes...
     </div>
 
-    <div
-      v-else-if="errorMessage"
-      class="status-msg error"
-    >
+    <div v-else-if="errorMessage" class="status-msg error">
       {{ errorMessage }}
     </div>
 
-    <div
-      v-else-if="recipes.length === 0"
-      class="status-msg"
-    >
+    <div v-else-if="recipes.length === 0" class="status-msg">
       No recipes found.
     </div>
 
-    <div
-      v-else
-      class="recipes-grid"
-    >
+    <div v-else class="recipes-grid">
       <div
         v-for="recipe in recipes"
         :key="recipe.id"
@@ -302,16 +234,17 @@ onMounted(() => {
             <strong>Category:</strong>
             {{ selectedRecipe.category }}
           </span>
+
+          <span>
+            <strong>Calories:</strong>
+            {{ selectedRecipe.caloriesPerServing }}
+          </span>
         </div>
 
         <div class="section-block">
           <h3>Ingredients</h3>
-
           <ul>
-            <li
-              v-for="(ingredient, index) in selectedRecipe.ingredients"
-              :key="index"
-            >
+            <li v-for="(ingredient, index) in selectedRecipe.ingredients" :key="index">
               {{ ingredient }}
             </li>
           </ul>
@@ -319,12 +252,8 @@ onMounted(() => {
 
         <div class="section-block">
           <h3>Instructions</h3>
-
           <ol>
-            <li
-              v-for="(step, index) in selectedRecipe.instructions"
-              :key="index"
-            >
+            <li v-for="(step, index) in selectedRecipe.instructions" :key="index">
               {{ step }}
             </li>
           </ol>
@@ -554,7 +483,6 @@ onMounted(() => {
   border-color: #4e42b8;
 }
 
-/* Added style for category select dropdown */
 .category-select {
   padding: 0.6rem 1rem;
   outline: none;
